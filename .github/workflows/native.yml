@@ -1,0 +1,53 @@
+name: Native Image
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    env:
+      CI: "true"
+      POSTGRES_HOST: localhost
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: "25"
+          distribution: "graalvm-community"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: sbt/setup-sbt@v1
+
+      - name: Build native image
+        run: sbt -batch nativeImage
+
+      - name: Smoke test with curl
+        run: |
+          ./app-native &
+          for _ in $(seq 1 60); do
+            if curl -sf -m 2 http://localhost:8080/; then exit 0; fi
+            sleep 1
+          done
+          echo "app-native did not answer on :8080" >&2
+          exit 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-native
+          path: app-native
